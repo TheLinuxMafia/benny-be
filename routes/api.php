@@ -637,8 +637,6 @@ Route::group([
      * Visualizza genera un estratto conto di una targa
      * @param: data: data completa
      */
-    Route::post('estratto/mese/aziende', [EstratticontoController::class, 'estratto_targa']);
-
 
     Route::post('estratto/mese/analitico', [EstratticontoController::class, 'mensile_analitico_aziende']);
 
@@ -659,6 +657,12 @@ Route::group([
     Route::post('estratti/filtra', [EstratticontoController::class, 'filtra']);
 
     Route::post('estratti/non_contabilizzate', [EstratticontoController::class, 'non_contabilizzate']);
+
+
+    /** stratti per punto vendita */
+
+    Route::post('estratti/mese/analiticopv/periodo', [EstratticontoController::class, 'estratto_analitico_azienda_periodo_pv']);
+    
 
     /** NON UTILIZZARE */
     Route::get('litri/transazioni/update', [TransazioniController::class, 'litri_transazione']);

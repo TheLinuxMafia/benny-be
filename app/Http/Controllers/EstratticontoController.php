@@ -6,17 +6,20 @@ use App\carburanti\carb_prodotti;
 use App\carburanti\carb_aziende;
 use App\carburanti\carb_targhe;
 use App\carburanti\ec;
+use App\aziende\azn_puntivendita;
 use Barryvdh\DomPDF\Facade\Pdf;
 use DB;
 use Log;
 use Mail;
 use Carbon\Carbon;
+use App\Http\Helper\EstrattiContoHelper;
 
 use Illuminate\Http\Request;
 $localString = "it_IT";
 
 class EstratticontoController extends Controller
 {
+
     /**
      * Estratto conto mensile analitico per targhe di un'azienda
      * @param: data: data completa
@@ -26,7 +29,9 @@ class EstratticontoController extends Controller
     public function azienda(Request $request) {
         $timestamp_iniziale = microtime(true);
 
-        $anno = date('Y', strtotime($request->data)); //Anno
+        $anno = $this->setAnno($request);
+
+      //  $anno = date('Y', strtotime($request->data)); //Anno
         $mese = date('m', strtotime($request->data)); //Mese
         $giorno = date('d', strtotime($request->data)); //Giorno attuale mi serve per capire se prendo dati nel futuro
         $giorni = cal_days_in_month(CAL_GREGORIAN,$mese,$anno); //Numero di giorni del mese attuale
@@ -847,7 +852,7 @@ class EstratticontoController extends Controller
                 $obj->response = $azn;
 
                 $data["email"] =  $request->email;
-                $data["title"] = "Estratto conto " . $month .  " " . $anno . " - Benny srl";
+                $data["title"] = "Estratto conto " . $mese .  " " . $anno . " - Benny srl";
                 $data["body"] = "In allegato l'estratto conto richiesto.";
 
                 $files = [
@@ -868,6 +873,140 @@ class EstratticontoController extends Controller
             }
             return response()->json($azn, 200);
     }
+
+
+    public function estratto_analitico_azienda_periodo_pv(Request $request) {
+
+        if($request->contabilizza) {
+            return $this->estratto_analitico_azienda_periodo_contabilizzato_pv($request);
+        } else {
+        setlocale(LC_TIME, 'it_IT');
+
+
+        $from = $request->from;
+        $to = $request->to;
+
+        $mese = EstrattiContoHelper::setMese($request);
+
+        $anno = EstrattiContoHelper::setAnno($request);
+
+        $puntov = EstrattiContoHelper::getPuntoVendita(id_azn_puntovendita: $request->id_azn_puntovendita);
+
+        $azienda = EstrattiContoHelper::getAzienda(id: $request->azn);
+
+        $prodotti = carb_prodotti::All();
+
+        /** Calcolo dei totali azienda del periodo */
+        //$tutte_transazioni = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->orderBy('created_at')->get();
+        $tutte_transazioni = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('id_puntov', $request->id_azn_puntovendita)->orderBy('created_at')->get();
+        if(!$tutte_transazioni || empty($tutte_transazioni) || count($tutte_transazioni) < 1) {
+            return response()->json(['success' => 'Nessun movimento nel periodo indicato'], 200);
+        }
+
+
+        $olio = array_sum(array_column($tutte_transazioni->toarray(), 'olio'));
+        $adblue = array_sum(array_column($tutte_transazioni->toarray(), 'adblue'));
+        $accessori = array_sum(array_column($tutte_transazioni->toarray(), 'accessori'));
+
+        $totale = array_sum(array_column($tutte_transazioni->toarray(), 'totale'));
+        $totale_altro = $olio + $adblue + $accessori;
+        $totale_carburanti = $totale - $totale_altro;
+
+        $azn = new \stdClass();
+        $azn->azienda = $azienda->ragsoc;
+        $azn->puntovendita = $puntov->nomepv;
+        $azn->piva = $azienda->piva;
+        $azn->from = $from;
+        $azn->to = $to;
+        $azn->totale = $totale;
+        $azn->totale_carburanti = $totale_carburanti;
+        $azn->totale_altro = $totale_altro;
+        $azn->totale_adblue = $adblue;
+        $azn->totale_olio = $olio;
+        $azn->totale_accessori = $accessori;
+        $azn->contabilizzato = '';
+
+        $targhe = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('id_puntov', $request->id_azn_puntovendita)->distinct('targa')->get();
+
+        $riep_targa = [];
+
+        foreach($targhe as $targa) {
+
+            $transazioni = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $targa['targa'])->where('id_puntov', $request->id_azn_puntovendita)->orderBy('created_at')->get();
+
+            $olio = array_sum(array_column($transazioni->toarray(), 'olio'));
+            $adblue = array_sum(array_column($transazioni->toarray(), 'adblue'));
+            $accessori = array_sum(array_column($transazioni->toarray(), 'accessori'));
+
+            $prod = [];
+            foreach($prodotti as $prodotto) {
+
+                $pr_trans = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $targa['targa'])->where('prodotto', $prodotto['prodotto'])->orderBy('created_at')->get();
+                $pr1_trans = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $targa['targa'])->where('prodotto1', $prodotto['prodotto'])->orderBy('created_at')->get();
+                $pr2_trans = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $targa['targa'])->where('prodotto2', $prodotto['prodotto'])->orderBy('created_at')->get();
+
+                $pr_sum = array_sum(array_column($pr_trans->toarray(), 'pr_importo'));
+                $pr_litri = array_sum(array_column($pr_trans->toarray(), 'pr_litri'));
+
+                $pr1_sum = array_sum(array_column($pr_trans->toarray(), 'pr1_importo'));
+                $pr1_litri = array_sum(array_column($pr_trans->toarray(), 'pr1_litri'));
+
+                $pr2_sum = array_sum(array_column($pr_trans->toarray(), 'pr2_importo'));
+                $pr2_litri = array_sum(array_column($pr_trans->toarray(), 'pr2_litri'));
+
+                $totale = $pr_sum + $pr1_sum + $pr2_sum;
+                $litri = $pr_litri + $pr1_litri + $pr2_litri;
+
+                if($totale > 0) {
+                    array_push($prod, ['prodotto' => $prodotto['prodotto'], 'totale' => $totale, 'litri' => $litri]);
+                }
+            }
+            array_push($riep_targa, ['targa' => $targa['targa'], 'olio' => $olio, 'adblue' => $adblue, 'accessori' => $accessori, 'prodotti' => $prod, 'transazioni' => $transazioni]);
+        }
+        $azn->targhe = $riep_targa;
+
+        if($request->print == 'true') {
+            Log::info('Stampo estratto');
+            Log::info($request->print);
+            $filename = $azienda->ragsoc.'-'.date("F", mktime(0, 0, 0, $mese, 10)).'-'.$anno.'-'.time().'-'.$puntov->nomepv;
+            $pdf = PDF::setOptions(['isHtml5ParserEnabled' => true, 'isRemoteEnabled' => true])->loadView('analiticoaziendaperiodoperpv', ['array' => $azn])->setPaper('a4', 'landscape');
+            \Storage::disk('public')->put('public/pdf/'.$filename.'.pdf', $pdf->output());
+            $obj = new \stdClass;
+            $obj->link = env('APP_URL').'/storage/public/pdf/'.$filename.'.pdf';
+            $obj->response = $azn;
+            return response()->json($obj, 200);
+        } else if($request->email) {
+            Log::info('infoo Email');
+            $filename = 'analitico-aziende-'.date("F", mktime(0, 0, 0, $mese, 10)).'-'.$anno.'-'.time();
+            $pdf = PDF::setOptions(['isHtml5ParserEnabled' => true, 'isRemoteEnabled' => true])->loadView('analiticoaziendaperiodoperpv', ['array' => $azn])->setPaper('a4', 'landscape');
+            \Storage::disk('public')->put('public/pdf/'.$filename.'.pdf', $pdf->output());
+            $obj = new \stdClass;
+            $obj->link = env('APP_URL').'/storage/public/pdf/'.$filename.'.pdf';
+            $obj->response = $azn;
+
+            $data["email"] =  $request->email;
+            $data["title"] = "Estratto conto " . $mese .  " " . $anno . " - Benny srl";
+            $data["body"] = "In allegato l'estratto conto richiesto.";
+
+            $files = [
+                public_path('storage/public/pdf/'.$filename.'.pdf'),
+            ];
+
+            Mail::send('mails.invioallegato', $data, function($message)use($data, $files) {
+                $message->to($data["email"], $data["email"])
+                        ->from('info@bennysrl.it', 'Benny srl - Estratti conto')
+                        ->subject($data["title"]);
+
+                foreach ($files as $file){
+                    $message->attach($file);
+                }
+            });
+
+            return response()->json($obj, 200);
+        }
+        return response()->json($azn, 200);
+    }
+}
 
 
        /**
@@ -978,7 +1117,7 @@ class EstratticontoController extends Controller
             $obj->response = $azn;
 
             $data["email"] =  $request->email;
-            $data["title"] = "Estratto conto " . $month .  " " . $anno . " - Benny srl";
+            $data["title"] = "Estratto conto " . $mese .  " " . $anno . " - Benny srl";
             $data["body"] = "In allegato l'estratto conto richiesto.";
 
             $files = [
@@ -1122,7 +1261,7 @@ if($request->print == 'true') {
     $obj->response = $azn;
     ec::where('numero', $numero_contabile)->update(['file' => env('APP_URL').'/storage/public/pdf/'.$filename.'.pdf']);
     $data["email"] =  $request->email;
-    $data["title"] = "Estratto conto " . $month .  " " . $anno . " - Benny srl";
+    $data["title"] = "Estratto conto " . $mese .  " " . $anno . " - Benny srl";
     $data["body"] = "In allegato l'estratto conto numero " . $numero_contabile;
 
     $files = [
@@ -1239,95 +1378,151 @@ public function non_contabilizzate(Request $request) {
     return $transazioni;
 }
 
-public function estratto_targa(Request $request) {
+public function estratto_analitico_azienda_periodo_contabilizzato_pv(Request $request) {
+    Log::info('estratto_analitico_azienda_periodo_contabilizzato_pv');
+
+    $numero_contabile = time();
+
+
     $from = $request->from;
     $to = $request->to;
     $mese = date('m', strtotime($request->from));
     $anno = date('Y', strtotime($request->from));
+    $puntov = azn_puntivendita::where('id_azn_puntovendita', $request->id_azn_puntovendita)->first();
 
     setlocale(LC_TIME, 'it_IT');
 
-    //$azienda = carb_aziende::where('id', $request->azn)->first();
+    $azienda = carb_aziende::where('id', $request->azn)->first();
 
-    /** Calcolo dei totali della targa */
-    $transazioni = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $request->targa)->orderBy('created_at')->get();
-    if(!$transazioni || empty($transazioni) || count($transazioni) < 1) {
+    $prodotti = carb_prodotti::All();
+
+    /** Calcolo dei totali azienda del periodo non ancora contabilizzate*/
+    $tutte_transazioni = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('contabilizzata', false)->where('id_puntov', $request->id_azn_puntovendita)->orderBy('created_at')->get();
+    if(!$tutte_transazioni || empty($tutte_transazioni) || count($tutte_transazioni) < 1) {
         return response()->json(['success' => 'Nessun movimento nel periodo indicato'], 200);
     }
+    $olio = array_sum(array_column($tutte_transazioni->toarray(), 'olio'));
+    $adblue = array_sum(array_column($tutte_transazioni->toarray(), 'adblue'));
+    $accessori = array_sum(array_column($tutte_transazioni->toarray(), 'accessori'));
 
-    $olio = array_sum(array_column($transazioni->toarray(), 'olio'));
-    $adblue = array_sum(array_column($transazioni->toarray(), 'adblue'));
-    $accessori = array_sum(array_column($transazioni->toarray(), 'accessori'));
+    $tot_gen = array_sum(array_column($tutte_transazioni->toarray(), 'totale'));
+    $totale_altro = $olio + $adblue + $accessori;
+    $totale_carburanti = $tot_gen - $totale_altro;
 
-    $prod = [];
-    foreach($prodotti as $prodotto) {
+    $azn = new \stdClass();
+    $azn->azienda = $azienda->ragsoc;
+    $azn->puntovendita = $puntov->nomepv;
+    $azn->piva = $azienda->piva;
+    $azn->from = $from;
+    $azn->to = $to;
+    $azn->totale = $tot_gen;
+    $azn->totale_carburanti = $totale_carburanti;
+    $azn->totale_altro = $totale_altro;
+    $azn->totale_adblue = $adblue;
+    $azn->totale_olio = $olio;
+    $azn->totale_accessori = $accessori;
+    $azn->contabilizzato = '*** DOCUMENTO CONTABILIZZATO NUMERO '.$numero_contabile.' ***';
 
-        $pr_trans = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $request->targa)->where('prodotto', $prodotto['prodotto'])->orderBy('created_at')->get();
-        $pr1_trans = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $request->targa)->where('prodotto1', $prodotto['prodotto'])->orderBy('created_at')->get();
-        $pr2_trans = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $request->targa)->where('prodotto2', $prodotto['prodotto'])->orderBy('created_at')->get();
 
-        $pr_sum = array_sum(array_column($pr_trans->toarray(), 'pr_importo'));
-        $pr_litri = array_sum(array_column($pr_trans->toarray(), 'pr_litri'));
+    /** Prendo tutte le targhe associate all'azienda che hanno fatto movimenti nel periodo non ancora contabilizzati */
+    $targhe = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('contabilizzata', false)->where('id_puntov', $request->id_azn_puntovendita)->distinct('targa')->get();
 
-        $pr1_sum = array_sum(array_column($pr_trans->toarray(), 'pr1_importo'));
-        $pr1_litri = array_sum(array_column($pr_trans->toarray(), 'pr1_litri'));
+    $riep_targa = [];
 
-        $pr2_sum = array_sum(array_column($pr_trans->toarray(), 'pr2_importo'));
-        $pr2_litri = array_sum(array_column($pr_trans->toarray(), 'pr2_litri'));
+    foreach($targhe as $targa) {
 
-        $totale = $pr_sum + $pr1_sum + $pr2_sum;
-        $litri = $pr_litri + $pr1_litri + $pr2_litri;
+        $transazioni = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $targa['targa'])->where('contabilizzata', false)->where('id_puntov', $request->id_azn_puntovendita)->orderBy('created_at')->get();
 
-        if($totale > 0) {
-            array_push($prod, ['prodotto' => $prodotto['prodotto'], 'totale' => $totale, 'litri' => $litri]);
+        $olio = array_sum(array_column($transazioni->toarray(), 'olio'));
+        $adblue = array_sum(array_column($transazioni->toarray(), 'adblue'));
+        $accessori = array_sum(array_column($transazioni->toarray(), 'accessori'));
+
+        $prod = [];
+        foreach($prodotti as $prodotto) {
+
+            $pr_trans = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $targa['targa'])->where('prodotto', $prodotto['prodotto'])->where('contabilizzata', false)->where('id_puntov', $request->id_azn_puntovendita)->orderBy('created_at')->get();
+            $pr1_trans = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $targa['targa'])->where('prodotto1', $prodotto['prodotto'])->where('contabilizzata', false)->where('id_puntov', $request->id_azn_puntovendita)->orderBy('created_at')->get();
+            $pr2_trans = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $targa['targa'])->where('prodotto2', $prodotto['prodotto'])->where('contabilizzata', false)->where('id_puntov', $request->id_azn_puntovendita)->orderBy('created_at')->get();
+
+            $pr_sum = array_sum(array_column($pr_trans->toarray(), 'pr_importo'));
+            $pr_litri = array_sum(array_column($pr_trans->toarray(), 'pr_litri'));
+
+            $pr1_sum = array_sum(array_column($pr_trans->toarray(), 'pr1_importo'));
+            $pr1_litri = array_sum(array_column($pr_trans->toarray(), 'pr1_litri'));
+
+            $pr2_sum = array_sum(array_column($pr_trans->toarray(), 'pr2_importo'));
+            $pr2_litri = array_sum(array_column($pr_trans->toarray(), 'pr2_litri'));
+
+            $totale = $pr_sum + $pr1_sum + $pr2_sum;
+            $litri = $pr_litri + $pr1_litri + $pr2_litri;
+
+            if($totale > 0) {
+                array_push($prod, ['prodotto' => $prodotto['prodotto'], 'totale' => $totale, 'litri' => $litri]);
+            }
         }
 
-    array_push($riep_targa, ['targa' => $targa['targa'], 'olio' => $olio, 'adblue' => $adblue, 'accessori' => $accessori, 'prodotti' => $prod, 'transazioni' => $transazioni]);
+        array_push($riep_targa, ['targa' => $targa['targa'], 'olio' => $olio, 'adblue' => $adblue, 'accessori' => $accessori, 'prodotti' => $prod, 'transazioni' => $transazioni]);
+   }
+
+   $azn->targhe = $riep_targa;
+
+
+   /** In questa fase devo dichiarare contabilizzate tutte le transazioni utilizzate per comporre questo estratto conto */
+   /** Se la funzione va a buon fine devo inserire un record dell'estratto conto */
+    $ec = new ec();
+    $ec->numero = $numero_contabile;
+    $ec->data = Date("Y-m-d");
+    $ec->importo = $tot_gen;
+    $ec->azienda = $azienda->ragsoc;
+    $ec->id_azienda = $azienda->id;
+    $ec->tipologia = 'Periodo';
+    $ec->periodo = 'dal '. Date('d/m/Y', strtotime($from)) . ' al ' . Date('d/m/Y', strtotime($to));
+    if($ec->save()) {
+        carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('contabilizzata', false)->update(['contabilizzata' => true, 'ec' => $numero_contabile]);
     }
-    $azn->targhe = $riep_targa;
 
-    if($request->print == 'true') {
-        Log::info('Stampo estratto');
-        Log::info($request->print);
-        $filename = 'analitico-aziende-'.date("F", mktime(0, 0, 0, $mese, 10)).'-'.$anno.'-'.time();
-        $pdf = PDF::setOptions(['isHtml5ParserEnabled' => true, 'isRemoteEnabled' => true])->loadView('analiticoaziendaperiodo', ['array' => $azn])->setPaper('a4', 'landscape');
-        \Storage::disk('public')->put('public/pdf/'.$filename.'.pdf', $pdf->output());
-        $obj = new \stdClass;
-        $obj->link = env('APP_URL').'/storage/public/pdf/'.$filename.'.pdf';
-        $obj->response = $azn;
-        return response()->json($obj, 200);
-    } else if($request->email) {
-        Log::info('infoo Email');
-        $filename = 'analitico-aziende-'.date("F", mktime(0, 0, 0, $mese, 10)).'-'.$anno.'-'.time();
-        $pdf = PDF::setOptions(['isHtml5ParserEnabled' => true, 'isRemoteEnabled' => true])->loadView('analiticoaziendaperiodo', ['array' => $azn])->setPaper('a4', 'landscape');
-        \Storage::disk('public')->put('public/pdf/'.$filename.'.pdf', $pdf->output());
-        $obj = new \stdClass;
-        $obj->link = env('APP_URL').'/storage/public/pdf/'.$filename.'.pdf';
-        $obj->response = $azn;
+if($request->print == 'true') {
+    Log::info('Stampo estratto');
+    Log::info($request->print);
+    $filename = $azienda->ragsoc.'-'.date("F", mktime(0, 0, 0, $mese, 10)).'-'.$anno.'-'.time().'-'.$puntov->nomepv;
+    $pdf = PDF::setOptions(['isHtml5ParserEnabled' => true, 'isRemoteEnabled' => true])->loadView('analiticoaziendaperiodoperpv', ['array' => $azn])->setPaper('a4', 'landscape');
+    \Storage::disk('public')->put('public/pdf/'.$filename.'.pdf', $pdf->output());
+    $obj = new \stdClass;
+    $obj->link = env('APP_URL').'/storage/public/pdf/'.$filename.'.pdf';
+    $obj->response = $azn;
+    ec::where('numero', $numero_contabile)->update(['file' => env('APP_URL').'/storage/public/pdf/'.$filename.'.pdf']);
+    return response()->json($obj, 200);
+} else if($request->email) {
+    Log::info('infoo Email');
+    $filename = 'analitico-aziende-'.date("F", mktime(0, 0, 0, $mese, 10)).'-'.$anno.'-'.$numero_contabile;
+    $pdf = PDF::setOptions(['isHtml5ParserEnabled' => true, 'isRemoteEnabled' => true])->loadView('analiticoaziendaperiodoperpv', ['array' => $azn])->setPaper('a4', 'landscape');
+    \Storage::disk('public')->put('public/pdf/'.$filename.'.pdf', $pdf->output());
+    $obj = new \stdClass;
+    $obj->link = env('APP_URL').'/storage/public/pdf/'.$filename.'.pdf';
+    $obj->response = $azn;
+    ec::where('numero', $numero_contabile)->update(['file' => env('APP_URL').'/storage/public/pdf/'.$filename.'.pdf']);
+    $data["email"] =  $request->email;
+    $data["title"] = "Estratto conto " . $mese .  " " . $anno . " - Benny srl";
+    $data["body"] = "In allegato l'estratto conto numero " . $numero_contabile;
 
-        $data["email"] =  $request->email;
-        $data["title"] = "Estratto conto " . $month .  " " . $anno . " - Benny srl";
-        $data["body"] = "In allegato l'estratto conto richiesto.";
+    $files = [
+        public_path('storage/public/pdf/'.$filename.'.pdf'),
+    ];
 
-        $files = [
-            public_path('storage/public/pdf/'.$filename.'.pdf'),
-        ];
+    Mail::send('mails.invioallegato', $data, function($message)use($data, $files) {
+        $message->to($data["email"], $data["email"])
+                ->from('info@bennysrl.it', 'Benny srl - Estratti conto')
+                ->subject($data["title"]);
 
-        Mail::send('mails.invioallegato', $data, function($message)use($data, $files) {
-            $message->to($data["email"], $data["email"])
-                    ->from('info@bennysrl.it', 'Benny srl - Estratti conto')
-                    ->subject($data["title"]);
+        foreach ($files as $file){
+            $message->attach($file);
+        }
+    });
 
-            foreach ($files as $file){
-                $message->attach($file);
-            }
-        });
-
-        return response()->json($obj, 200);
-    }
-    return response()->json($azn, 200);
+    return response()->json($obj, 200);
 }
-
+return response()->json($azn, 200);
+}
 
 }
 
