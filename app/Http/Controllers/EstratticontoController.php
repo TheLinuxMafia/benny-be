@@ -941,18 +941,18 @@ class EstratticontoController extends Controller
             $prod = [];
             foreach($prodotti as $prodotto) {
 
-                $pr_trans = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $targa['targa'])->where('prodotto', $prodotto['prodotto'])->orderBy('created_at')->get();
-                $pr1_trans = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $targa['targa'])->where('prodotto1', $prodotto['prodotto'])->orderBy('created_at')->get();
-                $pr2_trans = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $targa['targa'])->where('prodotto2', $prodotto['prodotto'])->orderBy('created_at')->get();
+                $pr_trans = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $targa['targa'])->where('id_puntov', $request->id_azn_puntovendita)->where('prodotto', $prodotto['prodotto'])->orderBy('created_at')->get();
+                $pr1_trans = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $targa['targa'])->where('id_puntov', $request->id_azn_puntovendita)->where('prodotto1', $prodotto['prodotto'])->orderBy('created_at')->get();
+                $pr2_trans = carb_trans::where('eliminata', false)->whereDate('created_at', '>=', $from)->whereDate('created_at', '<=', $to)->where('id_azienda', $azienda->id)->where('targa', $targa['targa'])->where('id_puntov', $request->id_azn_puntovendita)->where('prodotto2', $prodotto['prodotto'])->orderBy('created_at')->get();
 
                 $pr_sum = array_sum(array_column($pr_trans->toarray(), 'pr_importo'));
                 $pr_litri = array_sum(array_column($pr_trans->toarray(), 'pr_litri'));
 
-                $pr1_sum = array_sum(array_column($pr_trans->toarray(), 'pr1_importo'));
-                $pr1_litri = array_sum(array_column($pr_trans->toarray(), 'pr1_litri'));
+                $pr1_sum = array_sum(array_column($pr1_trans->toarray(), 'pr1_importo'));
+                $pr1_litri = array_sum(array_column($pr1_trans->toarray(), 'pr1_litri'));
 
-                $pr2_sum = array_sum(array_column($pr_trans->toarray(), 'pr2_importo'));
-                $pr2_litri = array_sum(array_column($pr_trans->toarray(), 'pr2_litri'));
+                $pr2_sum = array_sum(array_column($pr2_trans->toarray(), 'pr2_importo'));
+                $pr2_litri = array_sum(array_column($pr2_trans->toarray(), 'pr2_litri'));
 
                 $totale = $pr_sum + $pr1_sum + $pr2_sum;
                 $litri = $pr_litri + $pr1_litri + $pr2_litri;
@@ -1447,11 +1447,11 @@ public function estratto_analitico_azienda_periodo_contabilizzato_pv(Request $re
             $pr_sum = array_sum(array_column($pr_trans->toarray(), 'pr_importo'));
             $pr_litri = array_sum(array_column($pr_trans->toarray(), 'pr_litri'));
 
-            $pr1_sum = array_sum(array_column($pr_trans->toarray(), 'pr1_importo'));
-            $pr1_litri = array_sum(array_column($pr_trans->toarray(), 'pr1_litri'));
+            $pr1_sum = array_sum(array_column($pr1_trans->toarray(), 'pr1_importo'));
+            $pr1_litri = array_sum(array_column($pr1_trans->toarray(), 'pr1_litri'));
 
-            $pr2_sum = array_sum(array_column($pr_trans->toarray(), 'pr2_importo'));
-            $pr2_litri = array_sum(array_column($pr_trans->toarray(), 'pr2_litri'));
+            $pr2_sum = array_sum(array_column($pr2_trans->toarray(), 'pr2_importo'));
+            $pr2_litri = array_sum(array_column($pr2_trans->toarray(), 'pr2_litri'));
 
             $totale = $pr_sum + $pr1_sum + $pr2_sum;
             $litri = $pr_litri + $pr1_litri + $pr2_litri;

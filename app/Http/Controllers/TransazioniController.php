@@ -32,26 +32,37 @@ class TransazioniController extends Controller
 
         if($request->prodotto) {
             $index = array_search($request->prodotto, array_column($prezzi->toarray(), 'prodotto'));
+            Log::info($request->prodotto . ' ' . $prezzi[$index]['prezzo']);
             $pr_litri = round(($request->pr_importo / $prezzi[$index]['prezzo']), 2 ,PHP_ROUND_HALF_ODD);
         };
 
         if($request->prodotto1) {
             $index = array_search($request->prodotto1, array_column($prezzi->toarray(), 'prodotto'));
+            Log::info($request->prodotto1 . ' ' . $prezzi[$index]['prezzo']);
             $pr1_litri = round(($request->pr1_importo / $prezzi[$index]['prezzo']), 2 ,PHP_ROUND_HALF_ODD);
         };
 
         if($request->prodotto2) {
             $index = array_search($request->prodotto2, array_column($prezzi->toarray(), 'prodotto'));
+            Log::info($request->prodotto2 . ' ' . $prezzi[$index]['prezzo']);
             $pr2_litri = round(($request->pr2_importo / $prezzi[$index]['prezzo']), 2 ,PHP_ROUND_HALF_ODD);
         };
 
         if($request->adblue > 0) {
             $index = array_search('AD-BLUE', array_column($prezzi->toarray(), 'prodotto'));
+            Log::info($request->prodotto . ' ' . $prezzi[$index]['prezzo']);
             $adblue_litri = round(($request->adblue / $prezzi[$index]['prezzo']), 2 ,PHP_ROUND_HALF_ODD);
         }
 
 
         $totale = $request->pr_importo + $request->pr1_importo + $request->pr2_importo + $request->adblue + $request->olio + $request->accessori ;
+
+        Log::info('Totale: '.$totale);
+        Log::info('PR: '.$request->pr_importo);
+        Log::info('PR1: '.$request->pr1_importo);
+        Log::info('PR2: '.$request->pr2_importo);
+
+
 
         $scode = time();
 
